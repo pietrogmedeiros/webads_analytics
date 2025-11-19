@@ -85,32 +85,14 @@ export const SettingsIntegrations: React.FC = () => {
   useEffect(() => {
     const userId = getUserId();
     
-    // Carregar integrações do backend
-    const loadIntegrations = async () => {
-      try {
-        const data = await googleAdsService.getIntegrations(userId);
-        const googleIntegration = data.integrations.find((i: any) => i.provider === 'google-ads');
-        
-        if (googleIntegration) {
-          setGoogleConnected(true);
-          setGoogleAccountId(googleIntegration.email);
-          setGoogleName(googleIntegration.name);
-          setGoogleIntegrationId(googleIntegration.id);
-        }
-      } catch (error) {
-        console.warn('Failed to load integrations from backend:', error);
-        // Fallback to localStorage
-        const storedGoogle = localStorage.getItem('google_ads_connected');
-        if (storedGoogle === 'true') {
-          setGoogleConnected(true);
-          setGoogleAccountId(localStorage.getItem('google_account_id'));
-          setGoogleName(localStorage.getItem('google_account_name'));
-          setGoogleIntegrationId(localStorage.getItem('google_integration_id'));
-        }
-      }
-    };
-
-    loadIntegrations();
+    // Carregar integrações do localStorage (fallback principal)
+    const storedGoogle = localStorage.getItem('google_ads_connected');
+    if (storedGoogle === 'true') {
+      setGoogleConnected(true);
+      setGoogleAccountId(localStorage.getItem('google_account_id'));
+      setGoogleName(localStorage.getItem('google_account_name'));
+      setGoogleIntegrationId(localStorage.getItem('google_integration_id'));
+    }
 
     // Verificar retorno de OAuth (Auth Code na URL)
     const params = new URLSearchParams(window.location.search);
@@ -224,8 +206,11 @@ export const SettingsIntegrations: React.FC = () => {
       setIsConnectingGoogle(true);
       localStorage.setItem('connecting_provider', 'google');
       
+      // @ts-ignore
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      
       // Enviar credenciais para o backend gerar a URL OAuth
-      const response = await fetch('http://localhost:5000/api/auth/google-ads/oauth-url', {
+      const response = await fetch(`${apiUrl}/auth/google-ads/oauth-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
