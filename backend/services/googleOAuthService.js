@@ -4,9 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 
-// In-memory storage (replace with database in production)
-const tokenStore = new Map();
-const integrationStore = new Map();
+import { tokenStore, integrationStore } from './store.js';
 
 export class GoogleOAuthService {
   static async exchangeAuthCode(code, redirectUri, clientId, clientSecret) {
@@ -94,41 +92,7 @@ export class GoogleOAuthService {
     }
   }
 
-  static storeTokens(userId, provider, tokens) {
-    const integrationId = uuidv4();
-    const integration = {
-      id: integrationId,
-      userId,
-      provider,
-      ...tokens,
-      connectedAt: new Date().toISOString()
-    };
 
-    tokenStore.set(integrationId, integration);
-    return integration;
-  }
-
-  static getTokens(integrationId) {
-    return tokenStore.get(integrationId);
-  }
-
-  static getAllIntegrations(userId) {
-    const integrations = Array.from(tokenStore.values())
-      .filter(int => int.userId === userId)
-      .map(int => ({
-        id: int.id,
-        provider: int.provider,
-        email: int.email,
-        connectedAt: int.connectedAt,
-        name: int.name
-      }));
-
-    return integrations;
-  }
-
-  static removeIntegration(integrationId) {
-    return tokenStore.delete(integrationId);
-  }
 }
 
 export default GoogleOAuthService;

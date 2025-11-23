@@ -10,6 +10,8 @@ import { SettingsIntegrations } from './components/SettingsIntegrations';
 import { SiteDashboard } from './components/SiteDashboard';
 import { ScenarioSimulator } from './components/ScenarioSimulator';
 import { fetchCampaignDetails } from './services/geminiService';
+import { googleAdsService } from './services/googleAdsService';
+import { metaAdsService } from './services/metaAdsService';
 import { mockCampaignData } from './constants';
 import type { Theme, Campaign } from './types';
 
@@ -69,15 +71,73 @@ const App: React.FC = () => {
             
             if (currentView === 'meta') {
                 try {
-                    data = await fetchCampaignDetails();
+                    // Buscar o integration ID do localStorage (salvo após OAuth)
+                    const integrationId = localStorage.getItem('meta_integration_id');
+                    console.log('[DEBUG] Meta Ads integrationId:', integrationId);
+                    
+                    if (integrationId) {
+                        const response = await metaAdsService.getCampaigns(integrationId);
+                        
+                        if (response.success && response.campaigns && response.campaigns.length > 0) {
+                            data = response.campaigns.map((campaign: any) => ({
+                                id: campaign.id,
+                                name: campaign.name,
+                                platform: 'Facebook Ads',
+                                status: campaign.status === 'ACTIVE' ? 'Ativa' : campaign.status === 'PAUSED' ? 'Pausada' : 'Finalizada',
+                                impressions: campaign.impressions || 0,
+                                clicks: campaign.clicks || 0,
+                                spent: parseFloat((campaign.spent || 0).toString()),
+                                conversions: campaign.conversions || 0,
+                                ctr: campaign.ctr || '0%',
+                                roi: campaign.roi || '0%',
+                            }));
+                        } else {
+                            setError("Nenhuma campanha encontrada no Meta Ads.");
+                            data = [];
+                        }
+                    } else {
+                        setError("Meta Ads não conectado. Por favor, faça a conexão nas Configurações.");
+                        data = [];
+                    }
                 } catch (e) {
-                    console.warn("Supabase fetch failed, falling back to mock for Meta view", e);
+                    console.error("Meta Ads fetch error:", e);
+                    setError("Nota: Exibindo dados demonstrativos (Erro ao buscar dados do Meta Ads).");
                     data = mockCampaignData.filter(c => c.platform === 'Facebook Ads');
-                    setError("Nota: Exibindo dados demonstrativos (Erro de conexão API).");
                 }
             } else if (currentView === 'google') {
-                await new Promise(resolve => setTimeout(resolve, 600));
-                data = mockCampaignData.filter(c => c.platform === 'Google Ads');
+                try {
+                    // Buscar o integration ID do localStorage (salvo após OAuth)
+                    const integrationId = localStorage.getItem('google_integration_id');
+                    
+                    if (integrationId) {
+                        const response = await googleAdsService.getCampaigns(integrationId);
+                        
+                        if (response && response.campaigns && response.campaigns.length > 0) {
+                            data = response.campaigns.map((campaign: any) => ({
+                                id: campaign.id,
+                                name: campaign.name,
+                                platform: 'Google Ads',
+                                status: campaign.status === 'ENABLED' ? 'Ativa' : campaign.status === 'PAUSED' ? 'Pausada' : 'Remocao',
+                                impressions: campaign.impressions || 0,
+                                clicks: campaign.clicks || 0,
+                                spent: parseFloat((campaign.spent || campaign.cost || 0).toString()),
+                                conversions: campaign.conversions || 0,
+                                ctr: campaign.ctr || '0%',
+                                roi: campaign.roi || '0%',
+                            }));
+                        } else {
+                            setError("Nenhuma campanha encontrada.");
+                            data = [];
+                        }
+                    } else {
+                        setError("Google Ads não conectado. Por favor, faça a conexão nas Configurações.");
+                        data = [];
+                    }
+                } catch (e) {
+                    console.error("Google Ads fetch error:", e);
+                    setError("Erro ao buscar campanhas do Google Ads.");
+                    data = [];
+                }
             } else if (currentView === 'tiktok') {
                 await new Promise(resolve => setTimeout(resolve, 600));
                 data = mockCampaignData.filter(c => c.platform === 'TikTok Ads');

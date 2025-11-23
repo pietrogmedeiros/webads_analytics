@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import authRoutes from './routes/auth.js';
+import metaRoutes from './routes/meta.js';
 import integrationsRoutes from './routes/integrations.js';
 import campaignsRoutes from './routes/campaigns.js';
 
@@ -26,6 +27,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', metaRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/campaigns', campaignsRoutes);
 

@@ -1,4 +1,6 @@
 import express from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { tokenStore } from '../services/store.js';
 import GoogleOAuthService from '../services/googleOAuthService.js';
 
 const router = express.Router();
@@ -78,20 +80,26 @@ router.post('/google-ads/callback', async (req, res) => {
     const accountInfo = await GoogleOAuthService.getGoogleAdsAccount(tokens.accessToken);
 
     // Store tokens
-    const integration = GoogleOAuthService.storeTokens(userId, 'google-ads', {
+    const integrationId = uuidv4();
+    const integration = {
+      id: integrationId,
+      userId,
+      provider: 'google-ads',
       ...tokens,
       email: accountInfo.email,
       name: accountInfo.name,
-      googleId: accountInfo.id
-    });
+      googleId: accountInfo.id,
+      connectedAt: new Date().toISOString()
+    };
+    tokenStore.set(integrationId, integration);
 
     res.json({
       success: true,
       integration: {
         id: integration.id,
         provider: 'google-ads',
-        email: accountInfo.email,
-        name: accountInfo.name,
+        email: integration.email,
+        name: integration.name,
         connectedAt: integration.connectedAt
       }
     });
@@ -105,7 +113,15 @@ router.post('/google-ads/callback', async (req, res) => {
 router.get('/google-ads/status/:userId', (req, res) => {
   try {
     const { userId } = req.params;
-    const integrations = GoogleOAuthService.getAllIntegrations(userId);
+    const integrations = Array.from(tokenStore.values())
+      .filter(int => int.userId === userId)
+      .map(int => ({
+        id: int.id,
+        provider: int.provider,
+        email: int.email,
+        connectedAt: int.connectedAt,
+        name: int.name
+      }));
     const googleAdsIntegration = integrations.find(i => i.provider === 'google-ads');
 
     res.json({
@@ -127,7 +143,7 @@ router.post('/google-ads/disconnect', async (req, res) => {
       return res.status(400).json({ error: 'Missing integrationId' });
     }
 
-    const integration = GoogleOAuthService.getTokens(integrationId);
+    const integration = tokenStore.get(integrationId);
     
     if (integration && integration.accessToken) {
       // Try to revoke the token
@@ -135,7 +151,7 @@ router.post('/google-ads/disconnect', async (req, res) => {
     }
 
     // Remove from storage
-    GoogleOAuthService.removeIntegration(integrationId);
+    tokenStore.delete(integrationId);
 
     res.json({ success: true, message: 'Integration disconnected successfully' });
   } catch (error) {
