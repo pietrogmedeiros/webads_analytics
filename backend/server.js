@@ -27,7 +27,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/auth', metaRoutes);
+app.use('/api', metaRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/campaigns', campaignsRoutes);
 

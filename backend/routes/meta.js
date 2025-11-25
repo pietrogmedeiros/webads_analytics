@@ -1,122 +1,209 @@
 import express from 'express';
-import MetaOAuthService from '../services/metaOAuthService.js';
+import { supabase, supabaseAdmin } from '../services/supabaseClient.js';
 
 const router = express.Router();
 
-// Generate Meta Ads OAuth URL using credentials from .env
-router.post('/meta-ads/oauth-url', (req, res) => {
+// Get Meta Ads campaigns from Supabase facebook-ads table
+router.get('/campaigns/meta-ads', async (req, res) => {
   try {
-    const { redirectUri } = req.body;
-
-    if (!redirectUri) {
-      return res.status(400).json({ error: 'Missing required parameter: redirectUri' });
-    }
-
-    // Use credentials from environment variables
-    const clientId = process.env.META_CLIENT_ID;
-    const clientSecret = process.env.META_CLIENT_SECRET;
-
-    if (!clientId || !clientSecret) {
-      return res.status(500).json({ 
-        error: 'Meta credentials not configured',
-        hint: 'Set META_CLIENT_ID and META_CLIENT_SECRET in backend/.env'
-      });
-    }
-
-    const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?${new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      scope: 'ads_read,read_insights,business_management',
-      response_type: 'code',
-      state: Math.random().toString(36).substring(7)
-    }).toString()}`;
+    // Usar admin client se disponível, senão usar public client
+    const client = supabaseAdmin || supabase;
     
-    res.json({ authUrl });
+    const { data, error } = await client
+      .from('facebook-ads')
+      .select('*');
+
+    if (error) {
+      console.error('Error fetching from Supabase:', error);
+      return res.status(500).json({ error: 'Failed to fetch Meta Ads campaigns', details: error.message });
+    }
+
+    // Consolidar dados por campanha (somar métricas dos dias)
+    const campaignMap = {};
+    
+    (data || []).forEach((row) => {
+      const campaignName = row.Campanha || 'Unknown Campaign';
+      
+      if (!campaignMap[campaignName]) {
+        campaignMap[campaignName] = {
+          id: `meta-${row.id}`,
+          name: campaignName,
+          platform: 'Meta',
+          status: 'active',
+          startDate: row.Data_inicio,
+          endDate: row.Data_final,
+          metrics: {
+            impressions: 0,
+            clicks: 0,
+            spend: 0,
+            leads: 0,
+            costPerClick: 0,
+            cpa: 0
+          },
+          dayCount: 0
+        };
+      }
+      
+      // Somar métricas
+      campaignMap[campaignName].metrics.impressions += parseFloat(row.Impressoes) || 0;
+      campaignMap[campaignName].metrics.clicks += parseFloat(row.Cliques) || 0;
+      campaignMap[campaignName].metrics.spend += parseFloat(row['Valor investido']) || 0;
+      campaignMap[campaignName].metrics.leads += parseFloat(row.leads) || 0;
+      campaignMap[campaignName].dayCount += 1;
+    });
+
+    // Calcular médias e métricas derivadas
+    const campaigns = Object.values(campaignMap).map((campaign) => ({
+      ...campaign,
+      metrics: {
+        ...campaign.metrics,
+        costPerClick: campaign.metrics.clicks > 0 
+          ? parseFloat((campaign.metrics.spend / campaign.metrics.clicks).toFixed(2))
+          : 0,
+        cpa: campaign.metrics.leads > 0 
+          ? parseFloat((campaign.metrics.spend / campaign.metrics.leads).toFixed(2))
+          : 0
+      }
+    }));
+
+    res.json({
+      success: true,
+      campaigns,
+      total: campaigns.length
+    });
   } catch (error) {
-    console.error('Error generating OAuth URL:', error);
-    res.status(500).json({ error: 'Failed to generate OAuth URL' });
+    console.error('Error in /campaigns/meta-ads:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
-// Handle Meta Ads OAuth callback
-router.post('/meta-ads/callback', async (req, res) => {
+// Get Meta Ads daily performance data (for charts)
+router.get('/campaigns/meta-ads/daily', async (req, res) => {
   try {
-    const { code, redirectUri, userId } = req.body;
+    const client = supabaseAdmin || supabase;
+    
+    const { data, error } = await client
+      .from('facebook-ads')
+      .select('*')
+      .order('Data_inicio', { ascending: true });
 
-    if (!code || !userId) {
-      return res.status(400).json({ error: 'Missing required parameters: code, userId' });
+    if (error) {
+      console.error('Error fetching daily data:', error);
+      return res.status(500).json({ error: 'Failed to fetch daily data', details: error.message });
     }
 
-    // Exchange code for tokens using env vars
-    const tokens = await MetaOAuthService.exchangeAuthCode(
-      code,
-      redirectUri || process.env.META_REDIRECT_URI,
-      process.env.META_CLIENT_ID,
-      process.env.META_CLIENT_SECRET
+    // Transform data to daily performance format
+    // Group by date and return clicks/leads for each day
+    const dailyData = {};
+    
+    (data || []).forEach((row) => {
+      const date = row.Data_inicio; // Format: YYYY-MM-DD
+      
+      if (!dailyData[date]) {
+        dailyData[date] = {
+          date,
+          clicks: 0,
+          leads: 0,
+          impressions: 0,
+          spend: 0
+        };
+      }
+      
+      dailyData[date].clicks += parseFloat(row.Cliques) || 0;
+      dailyData[date].leads += parseFloat(row.leads) || 0;
+      dailyData[date].impressions += parseFloat(row.Impressoes) || 0;
+      dailyData[date].spend += parseFloat(row['Valor investido']) || 0;
+    });
+
+    // Convert to array and sort by date
+    const dailyArray = Object.values(dailyData).sort((a, b) => 
+      new Date(a.date) - new Date(b.date)
     );
 
-    // Get user account info
-    const accountInfo = await MetaOAuthService.getMetaAccountInfo(tokens.accessToken);
-
-    // Store tokens with ad account ID
-    const integration = MetaOAuthService.storeTokens(userId, 'meta-ads', {
-      ...tokens,
-      email: accountInfo.email,
-      name: accountInfo.name,
-      metaId: accountInfo.id,
-      adAccountId: adAccountId || '' // Can be set later
-    });
-
     res.json({
       success: true,
-      integration: {
-        id: integration.id,
-        provider: 'meta-ads',
-        email: accountInfo.email,
-        name: accountInfo.name,
-        connectedAt: integration.connectedAt
-      }
+      data: dailyArray,
+      total: dailyArray.length
     });
   } catch (error) {
-    console.error('Error in Meta OAuth callback:', error);
-    res.status(500).json({ error: error.message || 'Failed to complete OAuth flow' });
+    console.error('Error in /campaigns/meta-ads/daily:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
-// Check integration status
-router.get('/meta-ads/status/:userId', (req, res) => {
+// Check if Meta Ads data is available
+router.get('/campaigns/meta-ads/status', async (req, res) => {
   try {
-    const { userId } = req.params;
-    const integrations = MetaOAuthService.getAllIntegrations(userId);
+    const client = supabaseAdmin || supabase;
     
-    res.json({
-      success: true,
-      integrations
-    });
-  } catch (error) {
-    console.error('Error getting status:', error);
-    res.status(500).json({ error: 'Failed to get status' });
-  }
-});
+    const { count, error } = await client
+      .from('facebook-ads')
+      .select('*', { count: 'exact', head: true });
 
-// Disconnect integration
-router.post('/meta-ads/disconnect', (req, res) => {
-  try {
-    const { integrationId } = req.body;
-
-    if (!integrationId) {
-      return res.status(400).json({ error: 'integrationId is required' });
+    if (error) {
+      console.error('Error checking Meta Ads status:', error);
+      return res.json({ available: false, campaignCount: 0 });
     }
 
-    MetaOAuthService.removeIntegration(integrationId);
+    res.json({
+      available: true,
+      campaignCount: count || 0
+    });
+  } catch (error) {
+    console.error('Error in /campaigns/meta-ads/status:', error);
+    res.json({ available: false, campaignCount: 0 });
+  }
+});
+
+// Get daily Meta Ads performance data (para gráfico)
+router.get('/campaigns/meta-ads/daily', async (req, res) => {
+  try {
+    const client = supabaseAdmin || supabase;
+    
+    const { data, error } = await client
+      .from('facebook-ads')
+      .select('*')
+      .order('Data_inicio', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching daily data from Supabase:', error);
+      return res.status(500).json({ error: 'Failed to fetch daily data', details: error.message });
+    }
+
+    // Agrupar dados por data
+    const dailyMap = {};
+    
+    (data || []).forEach((row) => {
+      const date = row.Data_inicio || 'unknown';
+      
+      if (!dailyMap[date]) {
+        dailyMap[date] = {
+          date: date,
+          clicks: 0,
+          leads: 0,
+          impressions: 0,
+          spend: 0
+        };
+      }
+      
+      dailyMap[date].clicks += parseFloat(row.Cliques) || 0;
+      dailyMap[date].leads += parseFloat(row.leads) || 0;
+      dailyMap[date].impressions += parseFloat(row.Impressoes) || 0;
+      dailyMap[date].spend += parseFloat(row['Valor investido']) || 0;
+    });
+
+    // Converter para array e ordenar por data
+    const dailyData = Object.values(dailyMap)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     res.json({
       success: true,
-      message: 'Integration disconnected'
+      data: dailyData,
+      total: dailyData.length
     });
   } catch (error) {
-    console.error('Error disconnecting:', error);
-    res.status(500).json({ error: 'Failed to disconnect' });
+    console.error('Error in /campaigns/meta-ads/daily:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 

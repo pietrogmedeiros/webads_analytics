@@ -32,6 +32,7 @@ const App: React.FC = () => {
 
   // Lifted State from Dashboard
   const [campaignData, setCampaignData] = useState<Campaign[]>([]);
+  const [dailyPerformanceData, setDailyPerformanceData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,38 +72,85 @@ const App: React.FC = () => {
             
             if (currentView === 'meta') {
                 try {
-                    // Buscar o integration ID do localStorage (salvo após OAuth)
-                    const integrationId = localStorage.getItem('meta_integration_id');
-                    console.log('[DEBUG] Meta Ads integrationId:', integrationId);
+                    // @ts-ignore
+                    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
                     
-                    if (integrationId) {
-                        const response = await metaAdsService.getCampaigns(integrationId);
+                    // Buscar campanhas do Supabase (facebook-ads table)
+                    const response = await metaAdsService.getCampaigns();
+                    console.log('[DEBUG] Meta Ads response:', response);
+                    
+                    // Buscar dados diários para o gráfico
+                    const dailyResponse = await fetch(`${apiUrl}/campaigns/meta-ads/daily`, {
+                        credentials: 'include'
+                    });
+                    const dailyJson = await dailyResponse.json();
+                    
+                    if (dailyJson.success && dailyJson.data) {
+                        // Formatar dados diários para o gráfico
+                        const formattedDaily = dailyJson.data.map((d: any) => ({
+                            date: new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+                            clicks: d.clicks,
+                            leads: d.leads,
+                            impressions: d.impressions,
+                            conversions: d.leads
+                        }));
+                        setDailyPerformanceData(formattedDaily);
+                    }
+                    
+                    if (response.success && response.campaigns && response.campaigns.length > 0) {
+                        // Consolidar dados por campanha (agregar múltiplas linhas do mesmo dia)
+                        const campaignMap = new Map();
                         
-                        if (response.success && response.campaigns && response.campaigns.length > 0) {
-                            data = response.campaigns.map((campaign: any) => ({
-                                id: campaign.id,
-                                name: campaign.name,
-                                platform: 'Facebook Ads',
-                                status: campaign.status === 'ACTIVE' ? 'Ativa' : campaign.status === 'PAUSED' ? 'Pausada' : 'Finalizada',
-                                impressions: campaign.impressions || 0,
-                                clicks: campaign.clicks || 0,
-                                spent: parseFloat((campaign.spent || 0).toString()),
-                                conversions: campaign.conversions || 0,
-                                ctr: campaign.ctr || '0%',
-                                roi: campaign.roi || '0%',
-                            }));
-                        } else {
-                            setError("Nenhuma campanha encontrada no Meta Ads.");
-                            data = [];
-                        }
+                        response.campaigns.forEach((campaign: any) => {
+                            const key = campaign.name;
+                            
+                            if (!campaignMap.has(key)) {
+                                campaignMap.set(key, {
+                                    id: campaign.id,
+                                    name: campaign.name,
+                                    platform: 'Facebook Ads',
+                                    status: campaign.status || 'active',
+                                    startDate: campaign.startDate,
+                                    endDate: campaign.endDate,
+                                    metrics: {
+                                        impressions: 0,
+                                        clicks: 0,
+                                        spend: 0,
+                                        leads: 0,
+                                        costPerClick: 0,
+                                        cpa: 0
+                                    }
+                                });
+                            }
+                            
+                            const existing = campaignMap.get(key);
+                            existing.metrics.impressions += campaign.metrics?.impressions || 0;
+                            existing.metrics.clicks += campaign.metrics?.clicks || 0;
+                            existing.metrics.spend += campaign.metrics?.spend || 0;
+                            existing.metrics.leads += campaign.metrics?.leads || 0;
+                        });
+                        
+                        // Converter map para array
+                        data = Array.from(campaignMap.values()).map((campaign: any) => ({
+                            id: campaign.id,
+                            name: campaign.name,
+                            platform: campaign.platform,
+                            status: campaign.status,
+                            impressions: campaign.metrics.impressions,
+                            clicks: campaign.metrics.clicks,
+                            spent: campaign.metrics.spend,
+                            conversions: 0,
+                            leads: campaign.metrics.leads,
+                            cpa: campaign.metrics.leads > 0 ? parseFloat((campaign.metrics.spend / campaign.metrics.leads).toFixed(2)) : 0,
+                        }));
                     } else {
-                        setError("Meta Ads não conectado. Por favor, faça a conexão nas Configurações.");
+                        setError("Nenhuma campanha encontrada no Meta Ads.");
                         data = [];
                     }
                 } catch (e) {
                     console.error("Meta Ads fetch error:", e);
-                    setError("Nota: Exibindo dados demonstrativos (Erro ao buscar dados do Meta Ads).");
-                    data = mockCampaignData.filter(c => c.platform === 'Facebook Ads');
+                    setError("Erro ao buscar dados do Meta Ads do Supabase.");
+                    data = [];
                 }
             } else if (currentView === 'google') {
                 try {
@@ -195,6 +243,7 @@ const App: React.FC = () => {
         <Dashboard 
             view={currentView} 
             campaigns={campaignData}
+            dailyPerformanceData={dailyPerformanceData}
             isLoading={isLoading}
             error={error}
         />

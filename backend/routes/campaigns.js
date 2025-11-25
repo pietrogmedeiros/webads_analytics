@@ -1,6 +1,5 @@
 import express from 'express';
 import GoogleOAuthService from '../services/googleOAuthService.js';
-import MetaOAuthService from '../services/metaOAuthService.js';
 
 const router = express.Router();
 
@@ -52,53 +51,6 @@ router.get('/google-ads/:integrationId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching campaigns:', error);
     res.status(500).json({ error: 'Failed to fetch campaigns' });
-  }
-});
-
-// Get campaigns from Meta Ads (real API)
-router.get('/meta-ads/:integrationId', async (req, res) => {
-  try {
-    const { integrationId } = req.params;
-
-    const integration = MetaOAuthService.getTokens(integrationId);
-
-    if (!integration) {
-      return res.status(404).json({ error: 'Integration not found. Please connect Meta Ads first.' });
-    }
-
-    if (!integration.adAccountId) {
-      return res.status(400).json({ 
-        error: 'No ad account selected',
-        hint: 'Please select an ad account first'
-      });
-    }
-
-    // Fetch real campaigns from Meta Ads API
-    const campaigns = await MetaOAuthService.getCampaignsFromMeta(
-      integration.accessToken,
-      integration.adAccountId
-    );
-
-    res.json({
-      success: true,
-      email: integration.email,
-      adAccountId: integration.adAccountId,
-      campaigns: campaigns.map(c => ({
-        id: c.id,
-        name: c.name,
-        platform: 'Facebook Ads',
-        status: c.status === 'ACTIVE' ? 'Ativa' : c.status === 'PAUSED' ? 'Pausada' : 'Finalizada',
-        impressions: c.impressions || 0,
-        clicks: c.clicks || 0,
-        spent: parseFloat(c.spent || 0),
-        conversions: c.conversions || 0,
-        ctr: c.clicks && c.impressions ? (c.clicks / c.impressions * 100).toFixed(2) + '%' : '0%',
-        roi: c.conversions && c.spent ? (((c.conversions - c.spent) / c.spent) * 100).toFixed(2) + '%' : '0%',
-      }))
-    });
-  } catch (error) {
-    console.error('Error fetching Meta Ads campaigns:', error);
-    res.status(500).json({ error: 'Failed to fetch campaigns from Meta Ads' });
   }
 });
 

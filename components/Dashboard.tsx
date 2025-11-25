@@ -53,11 +53,12 @@ const aggregateForChart = (data: PerformanceDataPoint[]): ChartDataPoint[] => {
 interface DashboardProps {
     view: string;
     campaigns: Campaign[];
+    dailyPerformanceData?: any[];
     isLoading: boolean;
     error: string | null;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ view, campaigns, isLoading, error }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ view, campaigns, dailyPerformanceData = [], isLoading, error }) => {
     const [dateRange, setDateRange] = useState(getInitialDateRange);
     const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
     
@@ -112,6 +113,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ view, campaigns, isLoading
     }, [filteredCampaignTableData]);
 
     const chartData = useMemo(() => {
+        // Para Meta Ads, usar dados diários passados via props
+        if (view === 'meta' && dailyPerformanceData && dailyPerformanceData.length > 0) {
+            return dailyPerformanceData;
+        }
+        
+        // Para outras plataformas, usar mock data
         let baseData = filteredPerformanceDataByDate;
         const visibleCampaignIds = campaigns.map(c => c.id);
         let dataForChart = baseData.filter(d => visibleCampaignIds.includes(d.campaignId));
@@ -121,7 +128,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ view, campaigns, isLoading
         }
 
         return aggregateForChart(dataForChart);
-    }, [filteredPerformanceDataByDate, selectedCampaignIds, campaigns]);
+    }, [view, dailyPerformanceData, filteredPerformanceDataByDate, selectedCampaignIds, campaigns]);
 
     const allCampaignsForFilter = useMemo(
         () => campaigns.map(({ id, name }) => ({ id, name })), 

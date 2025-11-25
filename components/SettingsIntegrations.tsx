@@ -111,10 +111,6 @@ export const SettingsIntegrations: React.FC = () => {
       handleOAuthCallback(code, userId);
     }
 
-    if (code && connectingProvider === 'meta' && !metaConnected) {
-      handleMetaOAuthCallback(code, userId);
-    }
-
     // Carregar outros integrações do localStorage (GA4, TikTok, Meta)
     const storedGA4 = localStorage.getItem('ga4_connected');
     if (storedGA4 === 'true') {
@@ -175,50 +171,6 @@ export const SettingsIntegrations: React.FC = () => {
       localStorage.removeItem('connecting_provider');
     } finally {
       setIsConnectingGoogle(false);
-    }
-  };
-
-  const handleMetaOAuthCallback = async (code: string, userId: string) => {
-    try {
-      setIsConnectingMeta(true);
-      
-      // Get stored credentials
-      const clientId = localStorage.getItem('meta_oauth_client_id');
-      const clientSecret = localStorage.getItem('meta_oauth_client_secret');
-
-      const result = await metaAdsService.handleCallback(
-        code,
-        window.location.origin + '/callback',
-        userId,
-        clientId,
-        clientSecret
-      );
-
-      if (result.success && result.integration) {
-        setMetaConnected(true);
-        setMetaAccountId(result.integration.email);
-        setMetaName(result.integration.name);
-        setMetaIntegrationId(result.integration.id);
-        
-        // Save to localStorage as backup
-        localStorage.setItem('meta_ads_connected', 'true');
-        localStorage.setItem('meta_account_id', result.integration.email);
-        localStorage.setItem('meta_account_name', result.integration.name);
-        localStorage.setItem('meta_integration_id', result.integration.id);
-        
-        // Fetch available ad accounts
-        await handleFetchMetaAdAccounts(result.integration.id);
-
-        localStorage.removeItem('connecting_provider');
-        const newUrl = window.location.pathname;
-        window.history.replaceState({}, document.title, newUrl);
-      }
-    } catch (error) {
-      console.error('Meta OAuth callback error:', error);
-      alert('Erro ao conectar com Meta Ads. Por favor, tente novamente.');
-      localStorage.removeItem('connecting_provider');
-    } finally {
-      setIsConnectingMeta(false);
     }
   };
 
@@ -358,44 +310,34 @@ export const SettingsIntegrations: React.FC = () => {
   };
 
   // --- META ADS HANDLERS ---
+  // Meta Ads agora lê direto do Supabase, sem necessidade de OAuth
   const handleConnectMeta = async () => {
     try {
       setIsConnectingMeta(true);
-      localStorage.setItem('connecting_provider', 'meta');
       
-      // @ts-ignore
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      // Verificar se dados estão disponíveis no Supabase
+      const isAvailable = await metaAdsService.isAvailable();
       
-      // Gerar URL OAuth no backend
-      const response = await fetch(`${apiUrl}/auth/meta-ads/oauth-url`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          redirectUri: window.location.origin + '/callback'
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to get OAuth URL from backend');
+      if (isAvailable) {
+        // Simular integração (dados vêm do Supabase)
+        localStorage.setItem('meta_ads_connected', 'true');
+        setMetaConnected(true);
+        setMetaName('Meta Ads (Supabase)');
+        alert('Meta Ads conectado com sucesso!');
+      } else {
+        alert('Nenhum dado de Meta Ads encontrado no Supabase.');
       }
-
-      const { authUrl } = await response.json();
-      window.location.href = authUrl;
     } catch (error) {
-      console.error('Error initiating Meta Ads connection:', error);
+      console.error('Error connecting Meta Ads:', error);
       alert('Erro ao conectar com Meta Ads');
+    } finally {
       setIsConnectingMeta(false);
-      localStorage.removeItem('connecting_provider');
     }
   };
 
   const handleDisconnectMeta = async () => {
-    if (confirm('Tem certeza que deseja desconectar sua conta do Meta Ads?')) {
+    if (confirm('Tem certeza que deseja desconectar Meta Ads?')) {
       try {
-        if (metaIntegrationId) {
-          await metaAdsService.disconnect(metaIntegrationId);
-        }
-        
         // Clean up storage
         localStorage.removeItem('meta_ads_connected');
         localStorage.removeItem('meta_account_id');
@@ -406,7 +348,6 @@ export const SettingsIntegrations: React.FC = () => {
         setMetaAccountId(null);
         setMetaName(null);
         setMetaIntegrationId(null);
-        setMetaAdAccounts([]);
       } catch (error) {
         console.error('Error disconnecting:', error);
         alert('Erro ao desconectar. Por favor, tente novamente.');

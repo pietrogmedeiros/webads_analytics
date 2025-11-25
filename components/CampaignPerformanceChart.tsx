@@ -51,8 +51,8 @@ export const CampaignPerformanceChart: React.FC<CampaignPerformanceChartProps> =
             />
             <Line 
                 type="monotone" 
-                dataKey="conversions" 
-                name="Conversões" 
+                dataKey="leads" 
+                name="Leads" 
                 stroke="#22c55e" 
                 label={{ 
                     position: 'top', 
