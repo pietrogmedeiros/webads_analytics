@@ -188,7 +188,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ view, campaigns, dailyPerf
                     <AIInsights
                         selectedCampaignIds={selectedCampaignIds}
                         allCampaigns={campaigns}
-                        allInsights={allInsights}
                         isLoading={isInsightLoading}
                         error={insightError}
                     />

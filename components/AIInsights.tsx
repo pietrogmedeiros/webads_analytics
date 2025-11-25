@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import type { Campaign } from '../types';
+import { insightsService } from '../services/insightsService';
 
 declare var marked: {
   parse(markdown: string): string;
@@ -8,7 +9,6 @@ declare var marked: {
 interface AIInsightsProps {
   selectedCampaignIds: string[];
   allCampaigns: Campaign[];
-  allInsights: string[];
   isLoading: boolean;
   error: string | null;
 }
@@ -30,14 +30,36 @@ const LoadingSkeleton: React.FC = () => (
 );
 
 
-export const AIInsights: React.FC<AIInsightsProps> = ({ selectedCampaignIds, allCampaigns, allInsights, isLoading, error }) => {
+export const AIInsights: React.FC<AIInsightsProps> = ({ selectedCampaignIds, allCampaigns, isLoading, error }) => {
+    const [allInsights, setAllInsights] = useState<any[]>([]);
+    const [insightsLoading, setInsightsLoading] = useState(false);
+    const [insightsError, setInsightsError] = useState<string | null>(null);
+
+    // Buscar insights quando não tem campanha selecionada (todos os insights)
+    useEffect(() => {
+        if (selectedCampaignIds.length === 0) {
+            const fetchAllInsights = async () => {
+                try {
+                    setInsightsLoading(true);
+                    const response = await insightsService.getAllInsights();
+                    if (response.success) {
+                        setAllInsights(response.insights || []);
+                    }
+                } catch (err) {
+                    setInsightsError('Erro ao buscar insights');
+                    console.error('Error fetching all insights:', err);
+                } finally {
+                    setInsightsLoading(false);
+                }
+            };
+            fetchAllInsights();
+        }
+    }, []);
     
     const insightsToDisplay = useMemo(() => {
-        if (!allInsights || allInsights.length === 0) return [];
-        
-        // Case 1: No campaigns selected from filter. Show all insights.
+        // Case 1: No campaigns selected. Show all insights.
         if (selectedCampaignIds.length === 0) {
-            return allInsights;
+            return allInsights.map((insight) => insight.content || '');
         }
         
         // Case 2: Specific campaigns are selected. Filter insights.
@@ -45,50 +67,33 @@ export const AIInsights: React.FC<AIInsightsProps> = ({ selectedCampaignIds, all
         if (selectedCampaigns.length === 0) {
             return [];
         }
-        const selectedCampaignNames = selectedCampaigns.map(c => c.name.toLowerCase());
-            
+        
+        const selectedCampaignNames = selectedCampaigns.map(c => c.name);
         const relevantInsights: string[] = [];
-    
-        for (const insightText of allInsights) {
-            const isReportPotentiallyRelevant = selectedCampaignNames.some(name => 
-                insightText.toLowerCase().includes(name)
+        
+        selectedCampaignNames.forEach((campaignName) => {
+            const insight = allInsights.find(i => 
+                i.content && i.content.includes(campaignName)
             );
-            
-            if (!isReportPotentiallyRelevant) {
-                continue;
+            if (insight) {
+                relevantInsights.push(insight.content);
             }
-    
-            const insightBlocks = insightText.split(/\n(?=## |### )/);
-            
-            const generalBlocks = insightBlocks.filter(b => b.startsWith('## '));
-            const matchedCampaignBlocks = insightBlocks.filter(block => {
-                if (!block.startsWith('### ')) return false;
-                
-                const headerText = (block.split('\n')[0] || '').replace('###', '').trim().toLowerCase();
-                
-                return selectedCampaignNames.some(name => headerText.includes(name));
-            });
-    
-            if (matchedCampaignBlocks.length > 0) {
-                const reconstructedInsight = [...generalBlocks, ...matchedCampaignBlocks].join('\n\n');
-                relevantInsights.push(reconstructedInsight);
-            }
-        }
+        });
         
         return relevantInsights;
     }, [selectedCampaignIds, allCampaigns, allInsights]);
 
 
     const renderContent = () => {
-        if (isLoading) {
+        if (isLoading || insightsLoading) {
             return <LoadingSkeleton />;
         }
 
-        if (error) {
+        if (error || insightsError) {
             return (
                 <div className="text-center text-red-500">
                     <p className="font-semibold">Erro ao carregar análise:</p>
-                    <p className="text-sm mt-1">{error}</p>
+                    <p className="text-sm mt-1">{error || insightsError}</p>
                 </div>
             );
         }
